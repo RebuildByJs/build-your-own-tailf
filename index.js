@@ -1,24 +1,34 @@
 const fs = require('fs');
+const { promisify } = require('util');
 
-function tailf(filepath) {
+const OpenFileSync = promisify(fs.open);
+const fileStatSync = promisify(fs.fstat);
+const readSync = promisify(fs.read);
+
+async function tailf(filepath) {
     const CHUNK_SIZE = 16 * 1024;
-    const DELAY = 1000;
-    const fd = fs.openSync(filepath, 'r');
-    let cursor = 0;
-    const loop = () => {
-        let buf = Buffer.alloc(CHUNK_SIZE);
-        let content = fs.readSync(fd, buf, 0, CHUNK_SIZE, cursor);
-        cursor += content;
-        process.stdout.write(buf.slice(0, content));
 
-        if (content < CHUNK_SIZE) {
-            setTimeout(() => {
-                loop();
-            }, DELAY);
+    const fd = await OpenFileSync(filepath, 'r');
+    let { size: cursor } = await fileStatSync(fd);
+
+    const loop = async () => {
+        let buf = Buffer.alloc(CHUNK_SIZE);
+        let { bytesRead, buffer } = await readSync(fd, buf, 0, CHUNK_SIZE, cursor);
+        cursor += bytesRead;
+        process.stdout.write(buf.slice(0, bytesRead));
+
+        if (bytesRead < CHUNK_SIZE) {
+            // nothing
         } else {
             loop();
         }
     };
+
+    fs.watch(filepath, (event, filename) => {
+        if (event === 'change') {
+            loop();
+        }
+    });
 
     loop();
 }
